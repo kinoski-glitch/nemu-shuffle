@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>声の聞き比べ</title>
+    <style>
+      :root { color-scheme: dark; }
+      body { margin: 0; padding: 20px 16px 40px; background: #0b0a09; color: #d9cbb3; font-family: system-ui, 'Hiragino Sans', 'Noto Sans JP', sans-serif; max-width: 900px; margin-inline: auto; }
+      h1 { font-size: 1.3rem; margin: 0 0 4px; }
+      p { color: #8a7d68; font-size: 0.85rem; line-height: 1.6; margin: 4px 0 12px; }
+      .opts { display: flex; flex-wrap: wrap; gap: 16px; margin: 12px 0 20px; font-size: 0.9rem; }
+      .voice { border: 1px solid #2a251d; background: #17140f; border-radius: 12px; padding: 12px; margin-bottom: 10px; }
+      .voice.playing { border-color: #c58a4a; }
+      .head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+      .name { font-weight: 600; flex: 1; min-width: 12em; }
+      .meta { color: #8a7d68; font-size: 0.8rem; }
+      button { font: inherit; color: inherit; background: #221d16; border: 1px solid #2a251d; border-radius: 999px; padding: 6px 12px; cursor: pointer; }
+      button.main { background: #c58a4a; color: #1a120a; border-color: #c58a4a; }
+      .words { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+      .words button { font-size: 0.85rem; padding: 4px 10px; }
+      .words button.now { background: #c58a4a; color: #1a120a; }
+    </style>
+  </head>
+  <body>
+    <h1>声の聞き比べ</h1>
+    <p>同じ10語を候補の声で読み上げます。「通して聞く」は本番と同じくブラウンノイズを重ね、数秒おきに1語ずつ流します。単語のボタンで1語ずつも聞けます。</p>
+    <div class="opts">
+      <label><input type="checkbox" id="noise" checked /> ブラウンノイズを重ねる</label>
+      <label><input type="checkbox" id="soften" /> やわらかフィルタ</label>
+      <label>間隔 <select id="gap"><option value="3">3秒</option><option value="5" selected>5秒</option><option value="8">8秒(本番)</option></select></label>
+      <button id="stopAll">止める</button>
+    </div>
+    <div id="list">読み込み中…</div>
+
+    <script type="module">
+      import { makeBrownNoise } from '/src/noise.ts';
+
+      const base = '/audition/';
+      const manifest = await (await fetch(base + 'manifest.json', { cache: 'no-cache' })).json();
+      const ctx = new AudioContext({ sampleRate: 24000 });
+      const voiceGain = ctx.createGain();
+      voiceGain.gain.value = 0.8;
+      const soften = ctx.createBiquadFilter();
+      soften.type = 'highshelf';
+      soften.frequency.value = 3500;
+      soften.gain.value = 0;
+      voiceGain.connect(soften).connect(ctx.destination);
+      const noiseGain = ctx.createGain();
+      noiseGain.gain.value = 0;
+      noiseGain.connect(ctx.destination);
+      const noise = ctx.createBufferSource();
+      noise.buffer = makeBrownNoise(ctx);
+      noise.loop = true;
+      noise.connect(noiseGain);
+      noise.start();
+
+      const $ = (id) => document.getElementById(id);
+      $('soften').onchange = () => (soften.gain.value = $('soften').checked ? -6 : 0);
+
+      const cache = new Map();
+      async function buffer(vid, wid) {
+        const key = vid + '/' + wid;
+        if (!cache.has(key)) {
+          const h = manifest.voices.find((v) => v.id === vid).files[wid].hash;
+          const ab = await (await fetch(`${base}${vid}/${wid}.m4a?h=${h}`)).arrayBuffer();
+          cache.set(key, await ctx.decodeAudioData(ab));
+        }
+        return cache.get(key);
+      }
+
+      let sources = [];
+      let timers = [];
+      function stopAll() {
+        sources.forEach((s) => { try { s.stop(); } catch {} });
+        timers.forEach(clearTimeout);
+        sources = [];
+        timers = [];
+        noiseGain.gain.setTargetAtTime(0, ctx.currentTime, 0.3);
+        document.querySelectorAll('.playing, .now').forEach((el) => el.classList.remove('playing', 'now'));
+      }
+      $('stopAll').onclick = stopAll;
+
+      function play(buf, when) {
+        const s = ctx.createBufferSource();
+        s.buffer = buf;
+        s.connect(voiceGain);
+        s.start(when);
+        sources.push(s);
+      }
+
+      async function playOne(vid, wid, btn) {
+        await ctx.resume();
+        stopAll();
+        btn.classList.add('now');
+        const buf = await buffer(vid, wid);
+        play(buf, ctx.currentTime + 0.05);
+        timers.push(setTimeout(() => btn.classList.remove('now'), buf.duration * 1000 + 100));
+      }
+
+      async function playAll(vid, card) {
+        await ctx.resume();
+        stopAll();
+        card.classList.add('playing');
+        if ($('noise').checked) noiseGain.gain.setTargetAtTime(0.4, ctx.currentTime, 0.5);
+        const gap = Number($('gap').value);
+        const words = manifest.words.slice().sort(() => Math.random() - 0.5);
+        const bufs = await Promise.all(words.map((w) => buffer(vid, w.id)));
+        let t = ctx.currentTime + 1.5;
+        const t0 = ctx.currentTime;
+        words.forEach((w, i) => {
+          play(bufs[i], t);
+          const btn = card.querySelector(`[data-w="${w.id}"]`);
+          timers.push(setTimeout(() => btn.classList.add('now'), (t - t0) * 1000));
+          timers.push(setTimeout(() => btn.classList.remove('now'), (t - t0 + bufs[i].duration) * 1000));
+          t += gap;
+        });
+        timers.push(setTimeout(stopAll, (t - t0) * 1000));
+      }
+
+      const list = $('list');
+      list.textContent = '';
+      for (const v of manifest.voices) {
+        const card = document.createElement('div');
+        card.className = 'voice';
+        const durs = Object.values(v.files).map((f) => f.dur);
+        const avg = durs.reduce((a, b) => a + b, 0) / durs.length;
+        card.innerHTML = `<div class="head"><span class="name"></span><span class="meta">ID ${v.speaker}・1語 平均${avg.toFixed(2)}秒</span><button class="main">通して聞く</button></div><div class="words"></div>`;
+        card.querySelector('.name').textContent = v.credit.replace(/^VOICEVOX:/, '');
+        card.querySelector('.main').onclick = () => playAll(v.id, card);
+        const wrap = card.querySelector('.words');
+        for (const w of manifest.words) {
+          const b = document.createElement('button');
+          b.textContent = w.text;
+          b.dataset.w = w.id;
+          b.onclick = () => playOne(v.id, w.id, b);
+          wrap.appendChild(b);
+        }
+        list.appendChild(card);
+      }
+    </script>
+  </body>
+</html>

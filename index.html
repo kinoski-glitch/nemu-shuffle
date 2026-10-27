@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0b0a09" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="ねむシャッフル" />
+    <title>ねむシャッフル 試作</title>
+  </head>
+  <body>
+    <!-- ホーム -->
+    <section id="home" class="screen active">
+      <header>
+        <h1>ねむシャッフル</h1>
+        <p class="sub">フェーズ0 試作(技術検証)</p>
+      </header>
+
+      <div id="banner" class="banner" hidden></div>
+
+      <button id="start" class="start" disabled>準備中…</button>
+      <p id="prep" class="note"></p>
+
+      <div class="group">
+        <span class="label">タイマー</span>
+        <div class="chips" data-key="timer">
+          <button data-v="3">3分(お試し)</button>
+          <button data-v="15">15分</button>
+          <button data-v="30">30分</button>
+          <button data-v="60">60分</button>
+          <button data-v="480">エンドレス(8時間)</button>
+        </div>
+      </div>
+      <div class="group">
+        <span class="label">環境音</span>
+        <div class="chips" data-key="ambient">
+          <button data-v="brown">ブラウンノイズ</button>
+          <button data-v="faint">ごく小さいノイズ</button>
+          <button data-v="none">なし</button>
+        </div>
+      </div>
+      <div class="group">
+        <span class="label">出力方式</span>
+        <div class="chips" data-key="output">
+          <button data-v="direct">標準</button>
+          <button data-v="element">audio要素経由(予備)</button>
+        </div>
+      </div>
+
+      <nav class="links">
+        <button data-go="log">試験の記録</button>
+        <button data-go="howto">試験の手順</button>
+        <button data-go="about">このアプリについて</button>
+      </nav>
+    </section>
+
+    <!-- 再生中 -->
+    <section id="playing" class="screen">
+      <div class="remain" id="remain">--:--</div>
+      <div class="controls">
+        <button id="pause">一時停止</button>
+        <button id="stop">停止</button>
+      </div>
+      <p class="tiny" id="playinfo"></p>
+    </section>
+
+    <!-- 試験の記録 -->
+    <section id="log" class="screen page">
+      <h2>試験の記録</h2>
+      <pre id="env"></pre>
+      <div class="row">
+        <button id="copylog">記録をコピー</button>
+        <button id="clearlog">記録を消す</button>
+      </div>
+      <pre id="logtext" class="logtext"></pre>
+      <button class="back" data-go="home">戻る</button>
+    </section>
+
+    <!-- 試験の手順 -->
+    <section id="howto" class="screen page">
+      <h2>試験の手順</h2>
+      <ol>
+        <li>iPhone の Safari でこのページを開き、共有メニューから「ホーム画面に追加」する(ブラウザのままでも試せます)</li>
+        <li>まず「3分(お試し)」で開始し、声と環境音が聞こえ、最後に小さくなって止まることを確かめる</li>
+        <li>消音スイッチを ON にして、もう一度3分で鳴るか確かめる</li>
+        <li>本番: タイマー「30分」・環境音「ブラウンノイズ」で開始し、すぐに画面をロックする。消音スイッチは ON のまま</li>
+        <li>ロック画面に再生ボタンや「ねむシャッフル」の表示が出るかを見る</li>
+        <li>30分後まで途切れずに鳴り、最後にフェードして止まるかを聞く</li>
+        <li>終わったらアプリを開き、「試験の記録」で「ロック中のずれ」を確認し、「記録をコピー」して貼り付ける</li>
+        <li>余裕があれば、環境音「なし」「ごく小さいノイズ」、出力方式「audio要素経由」でも 30分 試す</li>
+      </ol>
+      <p class="note">「ロック中のずれ」は、ロック中に音声処理が止まっていた時間の目安です。0秒前後なら止まらずに動いています。</p>
+      <button class="back" data-go="home">戻る</button>
+    </section>
+
+    <!-- このアプリについて -->
+    <section id="about" class="screen page">
+      <h2>このアプリについて</h2>
+      <p>脈絡のない単語を、間をあけてランダムに読み上げます。単語の情景をぼんやり思い浮かべているうちに、考えごとの連鎖から離れることをねらった「シャッフル睡眠法(認知シャッフル)」を手軽に試すための試作です。</p>
+      <h3>クレジット</h3>
+      <p>声: <span id="credit">—</span></p>
+      <p>環境音: プログラムで合成(録音素材は使っていません)</p>
+      <h3>注意</h3>
+      <p>このアプリは医療機器ではなく、病気の診断や治療を目的としたものではありません。寝つけない日が続く場合は、医療機関に相談してください。</p>
+      <button class="back" data-go="home">戻る</button>
+    </section>
+
+    <audio id="sink" playsinline hidden></audio>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

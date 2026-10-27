@@ -1,0 +1,164 @@
+{
+  "version": 1,
+  "sampleRate": 24000,
+  "voices": [
+    {
+      "id": "a",
+      "credit": "VOICEVOX:No.7",
+      "placeholder": false,
+      "speaker": 31,
+      "speed": 1.0,
+      "intonation": 0.8,
+      "files": {
+        "w0001": {
+          "dur": 0.763,
+          "hash": "bf31d95f94d8"
+        },
+        "w0002": {
+          "dur": 0.767,
+          "hash": "f7d47230041a"
+        },
+        "w0003": {
+          "dur": 0.851,
+          "hash": "9abf21017380"
+        },
+        "w0004": {
+          "dur": 0.96,
+          "hash": "190aa706dc2d"
+        },
+        "w0005": {
+          "dur": 0.875,
+          "hash": "8f72e1b1db14"
+        },
+        "w0006": {
+          "dur": 0.694,
+          "hash": "82f79b394891"
+        },
+        "w0007": {
+          "dur": 0.732,
+          "hash": "7b4c8af22cfb"
+        },
+        "w0008": {
+          "dur": 0.84,
+          "hash": "068cda895e07"
+        },
+        "w0009": {
+          "dur": 0.999,
+          "hash": "c03afdadbde5"
+        },
+        "w0010": {
+          "dur": 0.864,
+          "hash": "4fac15b106f9"
+        }
+      }
+    }
+  ],
+  "categories": [
+    {
+      "id": "nature",
+      "label": "自然の風景"
+    },
+    {
+      "id": "sky",
+      "label": "空と天気"
+    },
+    {
+      "id": "plant",
+      "label": "植物"
+    },
+    {
+      "id": "land",
+      "label": "陸の生き物"
+    },
+    {
+      "id": "sea",
+      "label": "海と川の生き物"
+    },
+    {
+      "id": "food",
+      "label": "食べ物"
+    },
+    {
+      "id": "kitchen",
+      "label": "台所と日用品"
+    },
+    {
+      "id": "tool",
+      "label": "道具と文房具"
+    },
+    {
+      "id": "vehicle",
+      "label": "乗り物"
+    },
+    {
+      "id": "place",
+      "label": "建物と場所"
+    },
+    {
+      "id": "toy",
+      "label": "楽器とおもちゃ"
+    }
+  ],
+  "words": [
+    {
+      "id": "w0001",
+      "text": "りんご",
+      "yomi": "りんご",
+      "cat": "food"
+    },
+    {
+      "id": "w0002",
+      "text": "くじら",
+      "yomi": "くじら",
+      "cat": "sea"
+    },
+    {
+      "id": "w0003",
+      "text": "ひまわり",
+      "yomi": "ひまわり",
+      "cat": "plant"
+    },
+    {
+      "id": "w0004",
+      "text": "ゆうやけ",
+      "yomi": "ゆうやけ",
+      "cat": "sky"
+    },
+    {
+      "id": "w0005",
+      "text": "ふうせん",
+      "yomi": "ふうせん",
+      "cat": "toy"
+    },
+    {
+      "id": "w0006",
+      "text": "ヨット",
+      "yomi": "よっと",
+      "cat": "vehicle"
+    },
+    {
+      "id": "w0007",
+      "text": "やかん",
+      "yomi": "やかん",
+      "cat": "kitchen"
+    },
+    {
+      "id": "w0008",
+      "text": "えんぴつ",
+      "yomi": "えんぴつ",
+      "cat": "tool"
+    },
+    {
+      "id": "w0009",
+      "text": "みずうみ",
+      "yomi": "みずうみ",
+      "cat": "nature"
+    },
+    {
+      "id": "w0010",
+      "text": "風車",
+      "yomi": "ふうしゃ",
+      "cat": "place"
+    }
+  ]
+}
