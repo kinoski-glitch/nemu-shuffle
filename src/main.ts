@@ -17,11 +17,12 @@ import { loadLibrary, requestPlaybackSession, Session, type Ambient, type Librar
 interface Settings {
   timer: string; // 分
   ambient: Ambient;
+  ambVol: string; // 環境音の大きさ(%)
   output: Output;
 }
 
 const SETTINGS_KEY = 'nemu.v0.settings';
-const DEFAULTS: Settings = { timer: '30', ambient: 'brown', output: 'direct' };
+const DEFAULTS: Settings = { timer: '30', ambient: 'brown', ambVol: '20', output: 'direct' };
 
 function loadSettings(): Settings {
   try {
@@ -51,7 +52,8 @@ function playOptions(): PlayOptions {
     jitterSec: 1,
     slowdown: true,
     voiceVol: 0.8,
-    ambientVol: 0.32, // 0.4 では声が埋もれたため2割下げた
+    // 40%・32% では声が埋もれたため、既定は 20%。試作では端末で聞きながら選べる
+    ambientVol: (Number(settings.ambVol) || 20) / 100,
     soften: false, // 声に引っかかりを感じたため既定はオフ(改善課題: docs/design.md 12章)
     ambient: settings.ambient,
     output: settings.output,
@@ -206,6 +208,7 @@ function onCtxState(state: string): void {
     }
     markPaused(false);
     log(`外から再開されました(止まっていた時間 ${sec.toFixed(1)}秒)`);
+    watchClock();
   } else if (state === 'running' && !baseline && !paused) {
     baseline = { wall: Date.now(), ctx: session.ctx.currentTime };
   }
@@ -271,7 +274,7 @@ function start(): void {
   }
   const setupMs = Math.round(performance.now() - t);
   const ctx = session.ctx;
-  const label = `タイマー${settings.timer}分・環境音 ${settings.ambient}・出力 ${settings.output}`;
+  const label = `タイマー${settings.timer}分・環境音 ${settings.ambient}${settings.ambient === 'brown' ? `(${settings.ambVol}%)` : ''}・出力 ${settings.output}`;
   baseline = ctx.state === 'running' ? { wall: Date.now(), ctx: ctx.currentTime } : null;
   lagBefore = 0;
   paused = false;
@@ -318,10 +321,29 @@ async function togglePause(wantPause = !paused): Promise<void> {
       rec.extPausedSec = (rec.extPausedSec ?? 0) + (Date.now() - pausedAt) / 1000;
     }
     markPaused(false);
+    baseline = null; // 音声を作り直している間は、ずれを計らない
     await session.resume();
+    if (!session) return;
     baseline = { wall: Date.now(), ctx: session.ctx.currentTime };
-    log('再開');
+    log(`再開(音声を作り直して ${fmt(session.position())} の位置から続けます)`);
+    watchClock();
   }
+}
+
+/** 再開してから音声の時計が進まなければ、止まっている扱いに戻す(もう一度「再開」を押せば作り直す) */
+function watchClock(): void {
+  const s = session;
+  if (!s) return;
+  const ctx = s.ctx;
+  const before = ctx.currentTime;
+  setTimeout(() => {
+    if (session !== s || paused || s.ctx !== ctx) return;
+    if (ctx.currentTime - before < 0.5) {
+      markPaused(true);
+      extPaused = true;
+      log('⚠ 再開したのに音声の時計が進みません。「再開」を押すと音声を作り直します');
+    }
+  }, 2500);
 }
 
 async function finish(reason: 'timer' | 'stopped'): Promise<void> {

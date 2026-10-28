@@ -103,18 +103,75 @@ function fadeOutCurve(n = 256): Float32Array {
   return c;
 }
 
+/** 曲線のうち、位置 pos より後ろの部分だけを予約する(曲線は位置 start から dur 秒かけて動く) */
+function curveFrom(param: AudioParam, curve: Float32Array, start: number, dur: number, pos: number, t0: number): void {
+  if (pos >= start + dur) return;
+  if (pos <= start) {
+    param.setValueCurveAtTime(curve, t0 + start, dur);
+    return;
+  }
+  const i = Math.min(curve.length - 2, Math.floor(((pos - start) / dur) * (curve.length - 1)));
+  param.value = curve[i];
+  param.setValueCurveAtTime(curve.slice(i), t0 + pos, start + dur - pos);
+}
+
+interface PlannedWord {
+  buf: AudioBuffer;
+  p: number; // 開始からの秒
+}
+
 export class Session {
-  readonly ctx: AudioContext;
-  readonly t0: number;
-  readonly tEnd: number;
+  /** いま使っている AudioContext。再開のたびに作り直すので入れ替わる */
+  ctx!: AudioContext;
+  /** 開始位置(0秒)にあたる音声の時計の時刻。作り直すと変わる */
+  t0 = 0;
+  tEnd = 0;
+  /** 音声を作り直した回数 */
+  rebuilds = 0;
   readonly scheduledWords: number;
   readonly requestedRate = SAMPLE_RATE;
-  private readonly master: GainNode;
-  private readonly audioEl?: HTMLAudioElement;
+  private master!: GainNode;
+  private readonly lib: Library;
+  private readonly opts: PlayOptions;
+  private readonly audioEl: HTMLAudioElement;
+  private readonly onState: (s: string) => void;
+  private readonly plan: PlannedWord[] = [];
+  private readonly fadeIn: number;
+  private readonly fadeOut: number;
   private closed = false;
 
   /** ユーザーのタップの中で呼ぶこと(iOS は操作の中でしか音を出し始められない) */
   constructor(lib: Library, opts: PlayOptions, audioEl: HTMLAudioElement, onState: (s: string) => void) {
+    this.lib = lib;
+    this.opts = opts;
+    this.audioEl = audioEl;
+    this.onState = onState;
+    const D = opts.durationSec;
+    this.fadeIn = Math.min(opts.fadeInSec, D / 4);
+    this.fadeOut = Math.min(opts.fadeOutSec, D / 2);
+
+    // 単語の予定を先に決めておく(作り直しても同じ順番・同じ時刻で続ける)。
+    // 間隔は「基本間隔 ×(1 + 0.5 × 経過の割合)± ゆらぎ」
+    const shuffler = new Shuffler(lib.words);
+    let p = Math.min(4, this.fadeIn);
+    for (;;) {
+      const w = shuffler.next();
+      const buf = lib.buffers.get(w.id)!;
+      if (p + buf.duration > D - 0.5) break;
+      this.plan.push({ buf, p });
+      const base = opts.intervalSec * (opts.slowdown ? 1 + 0.5 * (p / D) : 1);
+      const jitter = (Math.random() * 2 - 1) * opts.jitterSec;
+      p += Math.max(buf.duration + 1, base + jitter);
+    }
+    this.scheduledWords = this.plan.length;
+    void this.build(0);
+  }
+
+  /**
+   * 新しい AudioContext を作り、位置 pos(開始からの秒)から終了までの音をすべて予約する。
+   * ユーザーのタップの中で呼ぶこと。
+   */
+  private build(pos: number): Promise<void> {
     requestPlaybackSession();
     let ctx: AudioContext;
     try {
@@ -123,12 +180,20 @@ export class Session {
       ctx = new AudioContext({ latencyHint: 'playback' });
     }
     this.ctx = ctx;
-    ctx.onstatechange = () => onState(ctx.state);
-    void ctx.resume();
+    ctx.onstatechange = () => {
+      if (this.ctx === ctx) this.onState(ctx.state);
+    };
+    const resumed = ctx.resume();
+
+    const { opts, lib } = this;
+    const D = opts.durationSec;
+    const now = ctx.currentTime + 0.3;
+    this.t0 = now - pos;
+    this.tEnd = this.t0 + D;
 
     // 音の通り道
     this.master = ctx.createGain();
-    this.master.gain.value = 0;
+    const entry = ctx.createGain(); // 途中から再開するときだけ、1.5秒かけて音量を戻す
     const voiceGain = ctx.createGain();
     voiceGain.gain.value = opts.voiceVol;
     const soften = ctx.createBiquadFilter();
@@ -136,27 +201,24 @@ export class Session {
     soften.frequency.value = 3500;
     soften.gain.value = opts.soften ? -6 : 0;
     voiceGain.connect(soften).connect(this.master);
+    this.master.connect(entry);
 
     if (opts.output === 'element') {
       // 予備の方式: Web Audio の出力を <audio> 要素に流す(ロック中に止まる端末向け)
       const dest = ctx.createMediaStreamDestination();
-      this.master.connect(dest);
-      audioEl.srcObject = dest.stream;
-      void audioEl.play();
-      this.audioEl = audioEl;
+      entry.connect(dest);
+      this.audioEl.srcObject = dest.stream;
+      void this.audioEl.play();
     } else {
-      this.master.connect(ctx.destination);
+      entry.connect(ctx.destination);
     }
 
-    const D = opts.durationSec;
-    const fadeIn = Math.min(opts.fadeInSec, D / 4);
-    const fadeOut = Math.min(opts.fadeOutSec, D / 2);
-    this.t0 = ctx.currentTime + 0.3;
-    this.tEnd = this.t0 + D;
-
-    // 全体の音量: 最初に上げ、終了前に下げる(予約)
-    this.master.gain.setValueCurveAtTime(fadeInCurve(), this.t0, fadeIn);
-    this.master.gain.setValueCurveAtTime(fadeOutCurve(), this.tEnd - fadeOut, fadeOut);
+    // 全体の音量: 最初に上げ、終了前に下げる(予約)。途中から始めるときは、その位置の続きから
+    const g = this.master.gain;
+    g.value = pos < this.fadeIn ? 0 : 1;
+    curveFrom(g, fadeInCurve(), 0, this.fadeIn, pos, this.t0);
+    curveFrom(g, fadeOutCurve(), D - this.fadeOut, this.fadeOut, pos, this.t0);
+    if (pos > 0) entry.gain.setValueCurveAtTime(fadeInCurve(), now, 1.5);
 
     // 環境音
     if (opts.ambient !== 'none') {
@@ -168,33 +230,29 @@ export class Session {
       amb.buffer = lib.noise;
       amb.loop = true;
       amb.connect(ambGain);
-      amb.start(this.t0);
+      amb.start(now);
       amb.stop(this.tEnd + 0.1);
     }
 
-    // 単語: 終了までの全語を時刻つきで予約する。間隔は「基本間隔 ×(1 + 0.5 × 経過の割合)± ゆらぎ」
-    const shuffler = new Shuffler(lib.words);
-    let t = this.t0 + Math.min(4, fadeIn);
-    let count = 0;
-    for (;;) {
-      const w = shuffler.next();
-      const buf = lib.buffers.get(w.id)!;
-      if (t + buf.duration > this.tEnd - 0.5) break;
+    // 単語: 位置 pos より後の全語を時刻つきで予約する。読み上げ途中の語はその続きから
+    for (const { buf, p } of this.plan) {
+      if (p + buf.duration <= pos) continue;
       const src = ctx.createBufferSource();
       src.buffer = buf;
       src.connect(voiceGain);
-      src.start(t);
-      count++;
-      const progress = (t - this.t0) / D;
-      const base = opts.intervalSec * (opts.slowdown ? 1 + 0.5 * progress : 1);
-      const jitter = (Math.random() * 2 - 1) * opts.jitterSec;
-      t += Math.max(buf.duration + 1, base + jitter);
+      if (p >= pos) src.start(this.t0 + p);
+      else src.start(now, pos - p);
     }
-    this.scheduledWords = count;
+    return resumed;
   }
 
   get state(): string {
     return this.closed ? 'closed' : this.ctx.state;
+  }
+
+  /** 開始からの位置(秒) */
+  position(): number {
+    return Math.min(this.opts.durationSec, Math.max(0, this.ctx.currentTime - this.t0));
   }
 
   /** 残り時間(秒)。一時停止中は音声の時計も止まるので、そのぶん自然に延びる */
@@ -208,12 +266,26 @@ export class Session {
 
   async pause(): Promise<void> {
     if (this.ctx.state === 'running') await this.ctx.suspend();
-    this.audioEl?.pause();
+    if (this.opts.output === 'element') this.audioEl.pause();
   }
 
+  /**
+   * 再開。iPhone では、止まった AudioContext を再開しても時計が進まず鳴らないことがあるため、
+   * 毎回作り直して止まった位置から予約し直す。ユーザーのタップの中で呼ぶこと。
+   */
   async resume(): Promise<void> {
-    await this.ctx.resume();
-    if (this.audioEl) await this.audioEl.play();
+    if (this.closed) return;
+    const old = this.ctx;
+    const pos = this.position();
+    old.onstatechange = null;
+    const resumed = this.build(pos);
+    this.rebuilds++;
+    try {
+      await old.close();
+    } catch {
+      /* すでに閉じている */
+    }
+    await resumed;
   }
 
   /** 停止ボタン: 1秒かけて音量を下げてから閉じる(「ブツッ」と切らない) */
@@ -234,8 +306,10 @@ export class Session {
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
-    this.audioEl?.pause();
-    if (this.audioEl) this.audioEl.srcObject = null;
+    if (this.opts.output === 'element') {
+      this.audioEl.pause();
+      this.audioEl.srcObject = null;
+    }
     try {
       await this.ctx.close();
     } catch {

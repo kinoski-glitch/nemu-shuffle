@@ -41,6 +41,16 @@
         </div>
       </div>
       <div class="group">
+        <span class="label">環境音の大きさ</span>
+        <div class="chips" data-key="ambVol">
+          <button data-v="10">10%</button>
+          <button data-v="15">15%</button>
+          <button data-v="20">20%</button>
+          <button data-v="25">25%</button>
+          <button data-v="32">32%</button>
+        </div>
+      </div>
+      <div class="group">
         <span class="label">出力方式</span>
         <div class="chips" data-key="output">
           <button data-v="direct">標準</button>
@@ -90,7 +100,7 @@
         <li>終わったらアプリを開き、「試験の記録」で「ロック中のずれ」を確認し、「記録をコピー」して貼り付ける</li>
         <li>余裕があれば、環境音「なし」「ごく小さいノイズ」、出力方式「audio要素経由」でも 30分 試す</li>
       </ol>
-      <p class="note">「ロック中のずれ」は、ロック中に音声処理が止まっていた時間の目安です。0秒前後なら止まらずに動いています。ロック画面のボタンや着信などで止まっていた時間は、ずれには数えず「外からの一時停止」として別に記録します。</p>
+      <p class="note">「ロック中のずれ」は、ロック中に音声処理が止まっていた時間の目安です。0秒前後なら止まらずに動いています。ロック画面のボタンや着信などで止まっていた時間は、ずれには数えず「外からの一時停止」として別に記録します。ロック画面で一時停止すると、ロック画面の再生ボタンでは戻らないことがあります。そのときはアプリを開いて「再開」を押してください。</p>
       <button class="back" data-go="home">戻る</button>
     </section>
 
