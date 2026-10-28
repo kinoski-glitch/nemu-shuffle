@@ -21,6 +21,8 @@ export interface SessionRecord {
   lastBeatWall: number; // JavaScript が最後に動いた時刻
   lastBeatCtx: number;
   maxLagSec: number; // 観測した最大のずれ(音声の時計の遅れ)
+  extPauses?: number; // アプリの外から止められた回数(ロック画面のボタン・着信など)
+  extPausedSec?: number; // その合計時間
   hiddenSince?: number;
   ended?: 'timer' | 'stopped' | 'error';
   endedWall?: number;

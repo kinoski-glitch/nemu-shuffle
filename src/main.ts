@@ -51,7 +51,7 @@ function playOptions(): PlayOptions {
     jitterSec: 1,
     slowdown: true,
     voiceVol: 0.8,
-    ambientVol: 0.4,
+    ambientVol: 0.32, // 0.4 では声が埋もれたため2割下げた
     soften: false, // 声に引っかかりを感じたため既定はオフ(改善課題: docs/design.md 12章)
     ambient: settings.ambient,
     output: settings.output,
@@ -139,7 +139,7 @@ $('playing').addEventListener('pointerdown', wake);
 function judge(rec: SessionRecord): string {
   const start = localTime(new Date(rec.startedWall));
   const head = `前回の試験: ${start} 開始・${Math.round(rec.durationSec / 60)}分\n${rec.settings}`;
-  const lag = `ロック中のずれ(最大): ${rec.maxLagSec.toFixed(1)}秒`;
+  const lag = `ロック中のずれ(最大): ${rec.maxLagSec.toFixed(1)}秒${extSummary(rec)}`;
   if (!rec.ended) {
     const alive = Math.round((rec.lastBeatWall - rec.startedWall) / 60000);
     return `${head}\n⚠ 終了処理の前にページが閉じられました(開始から約${alive}分後まで動作を確認)\n${lag}`;
@@ -147,6 +147,10 @@ function judge(rec: SessionRecord): string {
   if (rec.ended === 'stopped') return `${head}\n途中で停止ボタンが押されました\n${lag}`;
   const ok = rec.maxLagSec < 3;
   return `${head}\n${ok ? '✓ 予約した終了時刻まで音声処理が進みました' : '⚠ 音声処理が途中で止まっていた時間があります'}\n${lag}`;
+}
+
+function extSummary(r: SessionRecord): string {
+  return r.extPauses ? `\n外からの一時停止: ${r.extPauses}回・計 ${(r.extPausedSec ?? 0).toFixed(1)}秒` : '';
 }
 
 function showBanner(rec: SessionRecord | null): void {
@@ -165,6 +169,9 @@ let lagBefore = 0; // 一時停止より前に計測したずれ
 let lastTick = 0;
 let paused = false;
 let pausedAt = 0;
+// iPhone のロック画面のボタンは、アプリの処理を通さずブラウザが直接音声を止める・再開する。
+// そうした「外からの一時停止」もアプリの一時停止と同じに扱い、止まっていた時間をずれに数えない
+let extPaused = false;
 
 /** 壁の時計に対して、音声の時計がどれだけ遅れているか(秒)。ロック中に音声処理が止まると増える */
 function measureLag(): number {
@@ -185,11 +192,44 @@ function updateRecord(): void {
 
 function onCtxState(state: string): void {
   log(session ? `音声の状態: ${state}(音声の時計 ${session.ctx.currentTime.toFixed(1)}秒)` : `音声の状態: ${state}`);
-  if (state === 'running' && session && !baseline) {
+  if (!session) return;
+  if ((state === 'suspended' || state === 'interrupted') && !paused) {
+    // アプリが止めていないのに止まった
+    markPaused(true);
+    extPaused = true;
+    log('外から一時停止されました(ロック画面のボタン・着信・他のアプリの音など)');
+  } else if (state === 'running' && extPaused) {
+    const sec = (Date.now() - pausedAt) / 1000;
+    if (rec) {
+      rec.extPauses = (rec.extPauses ?? 0) + 1;
+      rec.extPausedSec = (rec.extPausedSec ?? 0) + sec;
+    }
+    markPaused(false);
+    log(`外から再開されました(止まっていた時間 ${sec.toFixed(1)}秒)`);
+  } else if (state === 'running' && !baseline && !paused) {
     baseline = { wall: Date.now(), ctx: session.ctx.currentTime };
   }
-  if (state === 'interrupted') log('⚠ 着信・アラームなどで中断された可能性があります');
-  if (state === 'suspended' && !paused && session) log('⚠ 一時停止していないのに音声が止まりました');
+}
+
+/** 一時停止・再開に伴う記録と表示の切り替え(音声そのものの停止・再開は呼び出し側で行う) */
+function markPaused(on: boolean): void {
+  if (!session) return;
+  extPaused = false;
+  if (on) {
+    lagBefore = measureLag();
+    baseline = null;
+    paused = true;
+    pausedAt = Date.now();
+    pauseBtn.textContent = '再開';
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+  } else {
+    paused = false;
+    if (rec) rec.pausedMs += Date.now() - pausedAt;
+    baseline = { wall: Date.now(), ctx: session.ctx.currentTime };
+    pauseBtn.textContent = '一時停止';
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+  }
+  updateRecord();
 }
 
 function setupMediaSession(): void {
@@ -235,6 +275,7 @@ function start(): void {
   baseline = ctx.state === 'running' ? { wall: Date.now(), ctx: ctx.currentTime } : null;
   lagBefore = 0;
   paused = false;
+  extPaused = false;
   rec = {
     id: String(Date.now()),
     startedWall: Date.now(),
@@ -267,21 +308,18 @@ function start(): void {
 async function togglePause(wantPause = !paused): Promise<void> {
   if (!session || wantPause === paused) return;
   if (wantPause) {
-    lagBefore = measureLag();
-    baseline = null;
-    paused = true;
-    pausedAt = Date.now();
+    markPaused(true); // 先に paused にしておくと、続く suspended を「外から」と誤解しない
     await session.pause();
-    pauseBtn.textContent = '再開';
-    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
     log('一時停止');
   } else {
-    paused = false;
-    if (rec) rec.pausedMs += Date.now() - pausedAt;
+    if (extPaused && rec) {
+      // 外から止められたものを、アプリの再開ボタンで戻した
+      rec.extPauses = (rec.extPauses ?? 0) + 1;
+      rec.extPausedSec = (rec.extPausedSec ?? 0) + (Date.now() - pausedAt) / 1000;
+    }
+    markPaused(false);
     await session.resume();
     baseline = { wall: Date.now(), ctx: session.ctx.currentTime };
-    pauseBtn.textContent = '一時停止';
-    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
     log('再開');
   }
 }
@@ -295,10 +333,11 @@ async function finish(reason: 'timer' | 'stopped'): Promise<void> {
     rec.ended = reason;
     rec.endedWall = Date.now();
     saveSession(rec);
+    const ext = extSummary(rec).replace('\n', '・');
     log(
       reason === 'timer'
-        ? `■ タイマーで終了(予約した終了時刻まで音声の時計が進みました)・ロック中のずれ 最大 ${rec.maxLagSec.toFixed(1)}秒`
-        : `■ 停止ボタンで終了・ロック中のずれ 最大 ${rec.maxLagSec.toFixed(1)}秒`,
+        ? `■ タイマーで終了(予約した終了時刻まで音声の時計が進みました)・ロック中のずれ 最大 ${rec.maxLagSec.toFixed(1)}秒${ext}`
+        : `■ 停止ボタンで終了・ロック中のずれ 最大 ${rec.maxLagSec.toFixed(1)}秒${ext}`,
     );
   }
   if (reason === 'stopped') await s.stop();
